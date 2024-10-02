@@ -1,0 +1,321 @@
+<!doctype html>
+<html lang="en">
+<head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <link rel="icon" type="image/png" sizes="32x32" href="/favicon-32x32.png">
+    <title>Perros y Gatos</title>
+
+    <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.0.2/dist/css/bootstrap.min.css" rel="stylesheet" integrity="sha384-EVSTQN3/azprG1Anm3QDgpJLIm9Nao0Yz1ztcQTwFspd3yD65VohhpuuCOmLASjC" crossorigin="anonymous">
+
+    <style>
+        body {
+            background-color: #f0f0f0;
+            font-family: Arial, sans-serif;
+        }
+        
+        .container {
+            background-color: #fff;
+            padding: 20px;
+            border-radius: 15px;
+            box-shadow: 0 4px 8px rgba(0, 0, 0, 0.1);
+            animation: fadeIn 1.5s ease;
+        }
+
+        @keyframes fadeIn {
+            from { opacity: 0; transform: translateY(20px); }
+            to { opacity: 1; transform: translateY(0); }
+        }
+
+        #resultado {
+            font-weight: bold;
+            font-size: 6rem;
+            color: #4caf50; /* Verde */
+            text-align: center;
+            transition: transform 0.5s, color 0.5s;
+        }
+
+        #resultado:hover {
+            transform: scale(1.1);
+            color: #f44336; /* Rojo */
+        }
+
+        button {
+            background-color: #4caf50;
+            border: none;
+            color: white;
+            padding: 15px 20px;
+            font-size: 16px;
+            cursor: pointer;
+            transition: background-color 0.3s, transform 0.3s;
+        }
+
+        button:hover {
+            background-color: #f44336;
+            transform: scale(1.05);
+        }
+
+        canvas {
+            border: 2px solid #4caf50;
+            border-radius: 10px;
+            transition: border-color 0.3s;
+        }
+
+        canvas:hover {
+            border-color: #f44336;
+        }
+    </style>
+</head>
+<body>
+    
+<main>
+    <div class="b-example-divider"></div>
+
+    <div class="container mt-5">
+        <div class="row">
+            <div class="col-12 col-md-4 offset-md-4 text-center">
+                <video id="video" playsinline autoplay style="width: 400px;"></video>
+                <button class="mb-2" id="cambiar-camara" onclick="cambiarCamara();">Cambiar cámara</button>
+                <button class="mb-2" id="toggle-pause" onclick="togglePause();">Pausar</button>
+                <canvas id="canvas" width="400" height="400" style="max-width: 100%; display:none;"></canvas>
+                <canvas id="otrocanvas" width="150" height="150" style="display:none;"></canvas>
+                <div id="resultado"></div>            
+            </div>
+        </div>
+    </div>
+
+    <div class="b-example-divider mb-0"></div>
+</main>
+
+<script src="https://cdn.jsdelivr.net/npm/bootstrap@5.0.2/dist/js/bootstrap.bundle.min.js" integrity="sha384-MrcW6ZMFYlzcLA8Nl+NtUVF0sA7MsXsP1UyJoMp4YLEuNSfAP+JcXn/tWtIaxVXM" crossorigin="anonymous"></script>
+<script src="https://cdn.jsdelivr.net/npm/@tensorflow/tfjs@2.0.0/dist/tf.min.js"></script>
+
+<script type="text/javascript">
+    var tamano = 400;
+    var video = document.getElementById("video");
+    var canvas = document.getElementById("canvas");
+    var otrocanvas = document.getElementById("otrocanvas");
+    var ctx = canvas.getContext("2d");
+    var currentStream = null; // Variable para almacenar el stream actual
+    var facingMode = "user";
+    var modelo = null;
+
+    let isPaused = false; // Variable para controlar el estado de pausa
+    let detectionInterval; // Variable para almacenar el intervalo de detección
+
+    (async () => {
+        console.log("Cargando modelo...");
+        modelo = await tf.loadLayersModel("model.json");
+        console.log("Modelo cargado");
+    })();
+
+    window.onload = function() {
+        mostrarCamara();
+    }
+
+    function mostrarCamara() {
+        var opciones = {
+            audio: false,
+            video: { width: tamano, height: tamano }
+        };
+
+        if (navigator.mediaDevices.getUserMedia) {
+            navigator.mediaDevices.getUserMedia(opciones)
+                .then(function(stream) {
+                    // Detener cualquier transmisión anterior
+                    if (currentStream) {
+                        currentStream.getTracks().forEach(track => track.stop());
+                    }
+                    currentStream = stream; // Actualiza el stream actual
+                    video.srcObject = currentStream; // Asigna el nuevo stream al video
+                    procesarCamara();
+                    predecir();
+                })
+                .catch(function(err) {
+                    alert("No se pudo utilizar la cámara :(");
+                    console.log(err);
+                });
+        } else {
+            alert("No existe la función getUserMedia");
+        }
+    }
+
+    function cambiarCamara() {
+        if (currentStream) {
+            currentStream.getTracks().forEach(track => track.stop()); // Detiene la cámara actual
+        }
+
+        facingMode = facingMode == "user" ? "environment" : "user"; // Cambia entre cámaras
+
+        var opciones = {
+            audio: false,
+            video: { facingMode: facingMode, width: tamano, height: tamano }
+        };
+
+        navigator.mediaDevices.getUserMedia(opciones)
+          .then(function(stream) {
+              currentStream = stream; // Actualiza el stream actual
+              video.srcObject = currentStream; // Asigna el nuevo stream al video
+
+              // Reinicia la detección después de cambiar la cámara
+              clearTimeout(detectionInterval);
+              predecir();
+          })
+          .catch(function(err) {
+              console.log("Oops, hubo un error", err);
+          });
+    }
+
+    function procesarCamara() {
+        ctx.drawImage(video, 0, 0, tamano, tamano, 0, 0, tamano, tamano);
+        setTimeout(procesarCamara, 20);
+    }
+
+    function togglePause() {
+        isPaused = !isPaused; // Cambia el estado de pausa
+        if (isPaused) {
+            clearTimeout(detectionInterval); // Detiene la detección
+            document.getElementById("toggle-pause").innerText = "Reanudar";
+            
+            // Detiene cualquier síntesis de voz en curso
+            window.speechSynthesis.cancel();
+            
+            document.getElementById("resultado").innerHTML = "Detenido"; // Mensaje opcional
+        } else {
+            predecir(); // Reinicia la detección
+            document.getElementById("toggle-pause").innerText = "Pausar";
+        }
+    }
+
+    function predecir() {
+      if (modelo != null && !isPaused) { // Solo ejecuta si no está en pausa
+          resample_single(canvas, 100, 100, otrocanvas);
+
+          var ctx2 = otrocanvas.getContext("2d");
+          var imgData = ctx2.getImageData(0, 0, 100, 100);
+
+          var arr = [];
+          var arr100 = [];
+
+          for (var p=0; p < imgData.data.length; p+= 4) {
+              var rojo = imgData.data[p] / 255;
+              var verde = imgData.data[p+1] / 255;
+              var azul = imgData.data[p+2] / 255;
+              var gris = (rojo + verde + azul) / 3;
+              arr100.push([gris]);
+              if (arr100.length == 100) {
+                  arr.push(arr100);
+                  arr100 = [];
+              }
+          }
+
+          arr = [arr];
+
+          var tensor = tf.tensor4d(arr);
+          var resultado = modelo.predict(tensor).dataSync();
+
+          let respuesta;
+
+          if (resultado <= .5) {
+              respuesta = "Gato";
+          } else {
+              respuesta = "Perro";
+          }
+
+          document.getElementById("resultado").innerHTML = respuesta;
+
+          // Reproduce la voz con el resultado
+          decirResultado(respuesta);
+      }
+
+      detectionInterval = setTimeout(predecir, 150); // Intervalo para la próxima predicción
+}
+
+function decirResultado(respuesta) {
+      var synth = window.speechSynthesis;
+      var utterance = new SpeechSynthesisUtterance(respuesta);
+      utterance.lang = 'es-ES'; // Español
+      utterance.pitch = 1; // Ajuste de tono suave
+      utterance.rate = 1; // Velocidad de la voz
+      utterance.volume = 0.7; // Volumen suave
+      synth.speak(utterance);
+}
+
+function resample_single(canvas, width, height, resize_canvas) {
+      var width_source = canvas.width;
+      var height_source = canvas.height;
+
+      width = Math.round(width);
+      height = Math.round(height);
+
+      var ratio_w = width_source / width;
+      var ratio_h = height_source / height;
+
+      var ratio_w_half = Math.ceil(ratio_w / 2);
+      var ratio_h_half = Math.ceil(ratio_h / 2);
+
+      var ctx = canvas.getContext("2d");
+      var ctx2 = resize_canvas.getContext("2d");
+      var img = ctx.getImageData(0, 0, width_source, height_source);
+      var img2 = ctx2.createImageData(width, height);
+      var data = img.data;
+      var data2 = img2.data;
+
+      for (var j=0; j < height; j++) {
+          for (var i=0; i < width; i++) {
+              var x2=(i+j*width)*4;
+
+              let weight=0,
+                  weights=0,
+                  weights_alpha=0,
+                  gx_r=0,
+                  gx_g=0,
+                  gx_b=0,
+                  gx_a=0;
+
+              let center_y=(j+0.5)*ratio_h,
+                  yy_start=Math.floor(j*ratio_h),
+                  yy_stop=Math.ceil((j+1)*ratio_h);
+
+              for (let yy=yy_start; yy<yy_stop; yy++) {
+                  let dy=Math.abs(center_y-(yy+0.5))/ratio_h_half,
+                      center_x=(i+0.5)*ratio_w,
+                      w0=dy*dy,
+                      xx_start=Math.floor(i*ratio_w),
+                      xx_stop=Math.ceil((i+1)*ratio_w);
+
+                  for (let xx=xx_start; xx<xx_stop; xx++) {
+                      let dx=Math.abs(center_x-(xx+0.5))/ratio_w_half,
+                          w=Math.sqrt(w0+dx*dx);
+
+                      if (w>=1) continue;
+
+                      weight=2*w*w*w-3*w*w;
+
+                      let pos_x=4*(xx+yy*width_source);
+                      gx_a+=weight*data[pos_x +3];
+                      weights_alpha+=weight;
+
+                      if(data[pos_x +3]<255)
+                          weight*=data[pos_x +3]/250;
+
+                      gx_r+=weight*data[pos_x];
+                      gx_g+=weight*data[pos_x +1];
+                      gx_b+=weight*data[pos_x +2];
+                      weights+=weight;
+                  }
+              }
+              
+              data2[x2]=gx_r/weights || data[x2]; // Default to original pixel if no weight
+              data2[x2 +1]=gx_g/weights || data[x2 +1];
+              data2[x2 +2]=gx_b/weights || data[x2 +2];
+              data2[x2 +3]=gx_a/weights_alpha || data[x2 +3];
+          }
+      }
+      
+      ctx2.putImageData(img2, 0, 0);
+}
+</script>
+
+</body>
+</html>
