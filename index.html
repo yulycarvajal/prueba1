@@ -104,9 +104,13 @@
     let detectionInterval; // Variable para almacenar el intervalo de detección
 
     (async () => {
-        console.log("Cargando modelo...");
-        modelo = await tf.loadLayersModel("model.json");
+       console.log("Cargando modelo...");
+    try {
+        modelo = await tf.loadLayersModel("model.json"); // Ruta correcta al archivo model.json
         console.log("Modelo cargado");
+    } catch (error) {
+        console.error("Error al cargar el modelo:", error);
+    }
     })();
 
     window.onload = function() {
